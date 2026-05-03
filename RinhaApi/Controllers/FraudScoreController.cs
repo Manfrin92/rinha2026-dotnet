@@ -8,9 +8,9 @@ namespace RinhaApi.Controllers;
 public class FraudScoreController : ControllerBase
 {
     [HttpPost]
-    public IActionResult GetReady([FromBody] FraudScoreRequest request)
+    public IActionResult GetReady([FromBody] FraudScoreRequest request, [FromServices] Services.IFraudDetectionService fraudDetectionService)
     {
-        FraudScoreResponse response = new(Approved: true, Fraud_score: 0.0m);
+        FraudScoreResponse response = fraudDetectionService.IsFraudulent(request);
 
         return Ok(response);
     }
