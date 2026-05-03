@@ -1,0 +1,39 @@
+services:
+  api1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:80
+    deploy:
+      resources:
+        limits:
+          cpus: "0.30"
+          memory: 100M
+
+  api2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:80
+    deploy:
+      resources:
+        limits:
+          cpus: "0.30"
+          memory: 100M
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "9999:80"
+    depends_on:
+      - api1
+      - api2
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.40"
+          memory: 150M
