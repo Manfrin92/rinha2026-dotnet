@@ -4,5 +4,5 @@ namespace RinhaApi.Services;
 
 public interface IVector
 {
-    List<decimal> GetVectorByRequest(FraudScoreRequest request);
+    List<float> GetVectorByRequest(FraudScoreRequest request);
 }

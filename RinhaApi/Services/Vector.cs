@@ -4,7 +4,7 @@ namespace RinhaApi.Services;
 
 public class Vector : IVector
 {
-    private const decimal MAX_AMOUNT = 10000;
+    private const float MAX_AMOUNT = 10000;
 
     private const int MAX_INSTALLMENTS = 12;
 
@@ -16,43 +16,43 @@ public class Vector : IVector
 
     private const int MAX_TX_COUNT_24H = 20;
 
-    private const decimal MAX_MERCHANT_AVG_AMOUNT = 10000;
+    private const float MAX_MERCHANT_AVG_AMOUNT = 10000;
 
-    public List<decimal> GetVectorByRequest(FraudScoreRequest request)
+    public List<float> GetVectorByRequest(FraudScoreRequest request)
     {
-        decimal amount = decimal.Round(Math.Clamp(request.Transaction.Amount / MAX_AMOUNT, 0, 1), 4);
+        float amount = float.Round(Math.Clamp(request.Transaction.Amount / MAX_AMOUNT, 0, 1), 4);
 
-        decimal installments = decimal.Round(Math.Clamp((decimal)request.Transaction.Installments / MAX_INSTALLMENTS, 0, 1), 4);
+        float installments = float.Round(Math.Clamp((float)request.Transaction.Installments / MAX_INSTALLMENTS, 0, 1), 4);
         
-        decimal amountVsAvgRatio = decimal.Round(Math.Clamp(request.Transaction.Amount / request.Customer.Avg_amount / AMOUNT_VS_AVG_RATIO, 0, 1), 4);
+        float amountVsAvgRatio = float.Round(Math.Clamp(request.Transaction.Amount / request.Customer.Avg_amount / AMOUNT_VS_AVG_RATIO, 0, 1), 4);
 
-        decimal hourOfDay = decimal.Round((decimal)request.Transaction.Requested_at.Hour / 23, 4);
+        float hourOfDay = float.Round((float)request.Transaction.Requested_at.Hour / 23, 4);
         
         // dotnet consider Monday = 0
         int adjustedDay = ((int)request.Transaction.Requested_at.DayOfWeek + 6) % 7;
-        decimal dayOfWeek = decimal.Round((decimal)adjustedDay / 6, 4);
+        float dayOfWeek = float.Round((float)adjustedDay / 6, 4);
         
-        decimal minutesSinceLastTx = request.Last_transaction?.Timestamp != null 
-            ? decimal.Round(Math.Clamp((decimal)(DateTime.UtcNow - request.Last_transaction.Timestamp).TotalMinutes / MAX_MINUTES, 0, 1), 4) 
+        float minutesSinceLastTx = request.Last_transaction?.Timestamp != null 
+            ? float.Round(Math.Clamp((float)(DateTime.UtcNow - request.Last_transaction.Timestamp).TotalMinutes / MAX_MINUTES, 0, 1), 4) 
             : -1;
 
-        decimal kmFromLastTx = request.Last_transaction != null 
-            ? decimal.Round(Math.Clamp(request.Last_transaction.Km_from_current / MAX_KM, 0, 1), 4) 
+        float kmFromLastTx = request.Last_transaction != null 
+            ? float.Round(Math.Clamp(request.Last_transaction.Km_from_current / MAX_KM, 0, 1), 4) 
             : -1;
         
-        decimal kmFromHome = decimal.Round(Math.Clamp(request.Terminal.Km_from_home / MAX_KM, 0, 1), 4);
+        float kmFromHome = float.Round(Math.Clamp(request.Terminal.Km_from_home / MAX_KM, 0, 1), 4);
 
-        decimal txCount24h = decimal.Round(Math.Clamp((decimal)request.Customer.Tx_count_24h / MAX_TX_COUNT_24H, 0, 1), 4);
+        float txCount24h = float.Round(Math.Clamp((float)request.Customer.Tx_count_24h / MAX_TX_COUNT_24H, 0, 1), 4);
         
-        decimal isOnline = request.Terminal.Is_online ? 1 : 0;
+        float isOnline = request.Terminal.Is_online ? 1 : 0;
 
-        decimal cardPresent = request.Terminal.Card_present ? 1 : 0;
+        float cardPresent = request.Terminal.Card_present ? 1 : 0;
 
-        decimal unknownMerchant = request.Customer.Known_merchants.Contains(request.Merchant.Id) ? 0 : 1;
+        float unknownMerchant = request.Customer.Known_merchants.Contains(request.Merchant.Id) ? 0 : 1;
 
-        decimal mccRisk = GetMccRisk(request.Merchant.Mcc);
+        float mccRisk = GetMccRisk(request.Merchant.Mcc);
 
-        decimal merchantAvgAmount = decimal.Round(Math.Clamp(request.Merchant.Avg_amount / MAX_MERCHANT_AVG_AMOUNT, 0, 1), 4);
+        float merchantAvgAmount = float.Round(Math.Clamp(request.Merchant.Avg_amount / MAX_MERCHANT_AVG_AMOUNT, 0, 1), 4);
         
         return
         [
@@ -73,21 +73,18 @@ public class Vector : IVector
         ];
     }
 
-    private decimal GetMccRisk(string mcc)
+    private static float GetMccRisk(string mcc) => mcc switch
     {
-        return mcc switch
-        {
-            "5411" => 0.15m,
-            "5812" => 0.30m,
-            "5912" => 0.20m,
-            "5944" => 0.45m,
-            "7801" => 0.80m,
-            "7802" => 0.75m,
-            "7995" => 0.85m,
-            "4511" => 0.35m,
-            "5311" => 0.25m,
-            "5999" => 0.50m,
-            _ => 0.5m // Risco médio para outros MCCs
-        };
-    }
+        "5411" => 0.15f,
+        "5812" => 0.30f,
+        "5912" => 0.20f,
+        "5944" => 0.45f,
+        "7801" => 0.80f,
+        "7802" => 0.75f,
+        "7995" => 0.85f,
+        "4511" => 0.35f,
+        "5311" => 0.25f,
+        "5999" => 0.50f,
+        _ => 0.5f // Risco médio para outros MCCs
+    };
 }
