@@ -14,4 +14,12 @@ public class FraudScoreController : ControllerBase
 
         return Ok(response);
     }
+
+    // TODO: Delete
+    [HttpPost("get-vector")]
+    public IActionResult GetVector([FromBody] FraudScoreRequest request, [FromServices] Services.IVector vectorService)
+    {
+        var vector = vectorService.GetVectorByRequest(request);
+        return Ok(vector);
+    }
 }
