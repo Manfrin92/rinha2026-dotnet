@@ -6,7 +6,7 @@ public class FraudDetectionService : IFraudDetectionService
 {
     public FraudScoreResponse IsFraudulent(FraudScoreRequest request)
     {
-        FraudScoreResponse response = new(Approved: true, Fraud_score: 0.0m);
+        FraudScoreResponse response = new(Approved: true, Fraud_score: 0);
 
         return response;
     }
