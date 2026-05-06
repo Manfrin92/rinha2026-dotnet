@@ -7,7 +7,7 @@ using RinhaApi.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
-builder.Services.AddScoped<IVector, Vector>();
+builder.Services.AddSingleton<IVector, Vector>();
 builder.Services.AddScoped<IMatrix, Matrix>();
 
 var process = Process.GetCurrentProcess();
@@ -67,13 +67,16 @@ Console.WriteLine($"Legit: {legitCount}, Fraud: {fraudCount}");
 Console.WriteLine("labels size: {0}", labels.Length);
 Console.WriteLine("vectors size: {0}", vectors.Length);
 
+var vectorService = new Vector();
+
 var fraudService = new FraudDetectionService(
     legitCount,
     fraudCount,
     labels,
     vectors,
     vectorSize,
-    index
+    index,
+    vectorService
 );
 
 builder.Services.AddSingleton<IFraudDetectionService>(fraudService);

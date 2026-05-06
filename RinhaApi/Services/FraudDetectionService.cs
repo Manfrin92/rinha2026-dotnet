@@ -7,7 +7,8 @@ public class FraudDetectionService(int legitCount,
     byte[] labels,
     byte[] vectors,
     int vectorSize,
-    int count) : IFraudDetectionService
+    int count,
+    IVector vectorService) : IFraudDetectionService
 {
     private int _legitCount = legitCount;
 
@@ -23,11 +24,77 @@ public class FraudDetectionService(int legitCount,
 
     private int _vectorSize = vectorSize;
 
+    private IVector _vectorService = vectorService;
+
     public FraudScoreResponse IsFraudulent(FraudScoreRequest request)
     {
-        FraudScoreResponse response = new(Approved: true, Fraud_score: 0);
+        var truncatedVector = _vectorService.GetTruncatedVectorByRequest(_vectorService.GetVectorByRequest(request));
+
+        var (approved, fraudScore) = Evaluate(truncatedVector);
+
+        FraudScoreResponse response = new(Approved: approved, Fraud_score: fraudScore);
 
         return response;
+    }
+
+    public (bool approved, float fraudScore) Evaluate(byte[] query)
+    {
+        int k = 5;
+
+        int[] bestIndices = new int[k];
+        int[] bestDistances = new int[k];
+
+        for (int i = 0; i < k; i++)
+        {
+            bestDistances[i] = int.MaxValue;
+            bestIndices[i] = -1;
+        }
+
+        // --- find top 5 ---
+        for (int i = 0; i < _count; i++)
+        {
+            int baseOffset = i * _vectorSize;
+
+            int dist = 0;
+
+            for (int d = 0; d < _vectorSize; d++)
+            {
+                int diff = _vectors[baseOffset + d] - query[d];
+                dist += diff * diff;
+            }
+
+            for (int j = 0; j < k; j++)
+            {
+                if (dist < bestDistances[j])
+                {
+                    for (int s = k - 1; s > j; s--)
+                    {
+                        bestDistances[s] = bestDistances[s - 1];
+                        bestIndices[s] = bestIndices[s - 1];
+                    }
+
+                    bestDistances[j] = dist;
+                    bestIndices[j] = i;
+                    break;
+                }
+            }
+        }
+
+        // --- compute fraud score ---
+        int fraudCount = 0;
+
+        for (int i = 0; i < k; i++)
+        {
+            if (_labels[bestIndices[i]] == 1)
+            {
+                fraudCount++;                
+            }
+        }
+
+        float fraudScore = fraudCount / 5f;
+        bool approved = fraudScore < 0.6f;
+
+        return (approved, fraudScore);
     }
 
     public bool IsReady()

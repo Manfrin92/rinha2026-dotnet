@@ -18,6 +18,8 @@ public class Vector : IVector
 
     private const float MAX_MERCHANT_AVG_AMOUNT = 10000;
 
+    private const int VECTOR_TRUNCATE_SIZE = 5;
+
     public List<float> GetVectorByRequest(FraudScoreRequest request)
     {
         float amount = float.Round(Math.Clamp(request.Transaction.Amount / MAX_AMOUNT, 0, 1), 4);
@@ -87,4 +89,27 @@ public class Vector : IVector
         "5999" => 0.50f,
         _ => 0.5f // Risco médio para outros MCCs
     };
+
+    /// <summary>
+    /// Reduces the dimensionality of the input vector by truncating it.
+    /// </summary>
+    /// <param name="inputVector">The input vector to truncate.</param>
+    /// <returns>The truncated vector.</returns>
+    public byte[] GetTruncatedVectorByRequest(List<float> inputVector)
+    {
+        var queryVector = new byte[VECTOR_TRUNCATE_SIZE];
+
+        for (int i = 0; i < VECTOR_TRUNCATE_SIZE; i++)
+        {
+            float value = inputVector[i];
+
+            // clamp
+            if (value < 0) value = 0;
+            if (value > 1) value = 1;
+
+            queryVector[i] = (byte)(value * 255 + 0.5f);
+        }
+
+        return queryVector;
+    }
 }
