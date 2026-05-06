@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using RinhaApi.Controllers.Dtos;
 
 namespace RinhaApi.Services;
@@ -20,60 +21,66 @@ public class Vector : IVector
 
     private const int VECTOR_TRUNCATE_SIZE = 5;
 
-    public List<float> GetVectorByRequest(FraudScoreRequest request)
+    // CLAUDE => Precompute inverses to replace divisions with multiplications for performance
+    private const float INV_MAX_AMOUNT             = 1f / MAX_AMOUNT;
+
+    private const float INV_MAX_INSTALLMENTS       = 1f / MAX_INSTALLMENTS;
+
+    private const float INV_AMOUNT_VS_AVG_RATIO    = 1f / AMOUNT_VS_AVG_RATIO;
+
+    private const float INV_MAX_MINUTES            = 1f / MAX_MINUTES;
+
+    private const float INV_MAX_KM                 = 1f / MAX_KM;
+
+    private const float INV_MAX_TX_COUNT_24H       = 1f / MAX_TX_COUNT_24H;
+
+    private const float INV_MAX_MERCHANT_AVG_AMOUNT= 1f / MAX_MERCHANT_AVG_AMOUNT;
+
+    private const float INV_23                     = 1f / 23f;
+    
+    private const float INV_6                      = 1f / 6f;
+
+    public float[] GetVectorByRequest(FraudScoreRequest request)
     {
-        float amount = float.Round(Math.Clamp(request.Transaction.Amount / MAX_AMOUNT, 0, 1), 4);
+        var tx       = request.Transaction;
+        var customer = request.Customer;
+        var terminal = request.Terminal;
+        var merchant = request.Merchant;
+        var lastTx   = request.Last_transaction;
 
-        float installments = float.Round(Math.Clamp((float)request.Transaction.Installments / MAX_INSTALLMENTS, 0, 1), 4);
-        
-        float amountVsAvgRatio = float.Round(Math.Clamp(request.Transaction.Amount / request.Customer.Avg_amount / AMOUNT_VS_AVG_RATIO, 0, 1), 4);
+        // Multiplications instead of divisions
+        float amount           = Clamp01(tx.Amount * INV_MAX_AMOUNT);
+        float installments     = Clamp01((float)tx.Installments * INV_MAX_INSTALLMENTS);
+        float amountVsAvgRatio = Clamp01(tx.Amount / customer.Avg_amount * INV_AMOUNT_VS_AVG_RATIO);
+        float hourOfDay        = tx.Requested_at.Hour * INV_23;
+        float dayOfWeek = (int)(tx.Requested_at.DayOfWeek + 6) % 7 * INV_6;
 
-        float hourOfDay = float.Round((float)request.Transaction.Requested_at.Hour / 23, 4);
-        
-        // dotnet consider Monday = 0
-        int adjustedDay = ((int)request.Transaction.Requested_at.DayOfWeek + 6) % 7;
-        float dayOfWeek = float.Round((float)adjustedDay / 6, 4);
-        
-        float minutesSinceLastTx = request.Last_transaction?.Timestamp != null 
-            ? float.Round(Math.Clamp((float)(DateTime.UtcNow - request.Last_transaction.Timestamp).TotalMinutes / MAX_MINUTES, 0, 1), 4) 
-            : -1;
+        float minutesSinceLastTx = lastTx?.Timestamp != null
+            ? Clamp01((float)(DateTime.UtcNow - lastTx.Timestamp).TotalMinutes * INV_MAX_MINUTES)
+            : -1f;
 
-        float kmFromLastTx = request.Last_transaction != null 
-            ? float.Round(Math.Clamp(request.Last_transaction.Km_from_current / MAX_KM, 0, 1), 4) 
-            : -1;
-        
-        float kmFromHome = float.Round(Math.Clamp(request.Terminal.Km_from_home / MAX_KM, 0, 1), 4);
+        float kmFromLastTx = lastTx != null
+            ? Clamp01(lastTx.Km_from_current * INV_MAX_KM)
+            : -1f;
 
-        float txCount24h = float.Round(Math.Clamp((float)request.Customer.Tx_count_24h / MAX_TX_COUNT_24H, 0, 1), 4);
-        
-        float isOnline = request.Terminal.Is_online ? 1 : 0;
+        float kmFromHome      = Clamp01(terminal.Km_from_home   * INV_MAX_KM);
+        float txCount24h      = Clamp01((float)customer.Tx_count_24h * INV_MAX_TX_COUNT_24H);
+        float isOnline        = terminal.Is_online    ? 1f : 0f;
+        float cardPresent     = terminal.Card_present ? 1f : 0f;
+        float unknownMerchant = customer.Known_merchants.Contains(merchant.Id) ? 0f : 1f;
+        float mccRisk         = GetMccRisk(merchant.Mcc);
+        float merchantAvgAmt  = Clamp01(merchant.Avg_amount * INV_MAX_MERCHANT_AVG_AMOUNT);
 
-        float cardPresent = request.Terminal.Card_present ? 1 : 0;
-
-        float unknownMerchant = request.Customer.Known_merchants.Contains(request.Merchant.Id) ? 0 : 1;
-
-        float mccRisk = GetMccRisk(request.Merchant.Mcc);
-
-        float merchantAvgAmount = float.Round(Math.Clamp(request.Merchant.Avg_amount / MAX_MERCHANT_AVG_AMOUNT, 0, 1), 4);
-        
         return
         [
-            amount,
-            installments,
-            amountVsAvgRatio,
-            hourOfDay,
-            dayOfWeek,
-            minutesSinceLastTx,
-            kmFromLastTx,
-            kmFromHome,
-            txCount24h,
-            isOnline,
-            cardPresent,
-            unknownMerchant,
-            mccRisk,
-            merchantAvgAmount
+            amount, installments, amountVsAvgRatio, hourOfDay, dayOfWeek,
+            minutesSinceLastTx, kmFromLastTx, kmFromHome, txCount24h,
+            isOnline, cardPresent, unknownMerchant, mccRisk, merchantAvgAmt
         ];
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float Clamp01(float v) => v < 0f ? 0f : v > 1f ? 1f : v;
 
     private static float GetMccRisk(string mcc) => mcc switch
     {
@@ -95,7 +102,7 @@ public class Vector : IVector
     /// </summary>
     /// <param name="inputVector">The input vector to truncate.</param>
     /// <returns>The truncated vector.</returns>
-    public byte[] GetTruncatedVectorByRequest(List<float> inputVector)
+    public byte[] GetTruncatedVectorByRequest(float[] inputVector)
     {
         var queryVector = new byte[VECTOR_TRUNCATE_SIZE];
 

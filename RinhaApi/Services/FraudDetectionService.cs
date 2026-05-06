@@ -1,108 +1,154 @@
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using RinhaApi.Controllers.Dtos;
 
 namespace RinhaApi.Services;
 
-public class FraudDetectionService(int legitCount,
+public class FraudDetectionService(
+    int legitCount,
     int fraudCount,
     byte[] labels,
     byte[] vectors,
     int vectorSize,
+    int bitsPerDim,
     int count,
-    IVector vectorService) : IFraudDetectionService
+    IVector vectorService,
+    Dictionary<long, List<int>> grid) : IFraudDetectionService
 {
-    private int _legitCount = legitCount;
-
-    private int _fraudCount = fraudCount;
-
-    // All references stored in one single array
-    private byte[] _labels = labels; // 0 = legit, 1 = fraud
-
-    // Super simplified version of the references
-    private byte[] _vectors = vectors;
-
-    private int _count = count;
-
-    private int _vectorSize = vectorSize;
-
-    private IVector _vectorService = vectorService;
+    private const int K = 5;
 
     public FraudScoreResponse IsFraudulent(FraudScoreRequest request)
     {
-        var truncatedVector = _vectorService.GetTruncatedVectorByRequest(_vectorService.GetVectorByRequest(request));
-
+        var truncatedVector = vectorService.GetTruncatedVectorByRequest(vectorService.GetVectorByRequest(request));
         var (approved, fraudScore) = Evaluate(truncatedVector);
-
-        FraudScoreResponse response = new(Approved: approved, Fraud_score: fraudScore);
-
-        return response;
+        return new FraudScoreResponse(Approved: approved, Fraud_score: fraudScore);
     }
 
     public (bool approved, float fraudScore) Evaluate(byte[] query)
     {
-        int k = 5;
+        long key = GetGridKey(query);
 
-        int[] bestIndices = new int[k];
-        int[] bestDistances = new int[k];
+        // Try exact cell first, then expand to neighbors if not enough points
+        var candidates = GetCandidates(key, query);
 
-        for (int i = 0; i < k; i++)
+        return ScoreFromCandidates(candidates, query);
+    }
+
+    private List<int> GetCandidates(long key, byte[] query)
+    {
+        // Exact cell has enough points — fast path
+        if (grid.TryGetValue(key, out var exactBucket) && exactBucket.Count >= K * 4)
+            return exactBucket;
+
+        // Expand to neighbor cells by flipping each dim's bin by ±1
+        var merged = new HashSet<int>(exactBucket ?? []);
+
+        for (int dim = 0; dim < vectorSize; dim++)
         {
-            bestDistances[i] = int.MaxValue;
-            bestIndices[i] = -1;
-        }
-
-        // --- find top 5 ---
-        for (int i = 0; i < _count; i++)
-        {
-            int baseOffset = i * _vectorSize;
-
-            int dist = 0;
-
-            for (int d = 0; d < _vectorSize; d++)
+            foreach (int delta in new[] { -1, 1 })
             {
-                int diff = _vectors[baseOffset + d] - query[d];
-                dist += diff * diff;
+                long neighborKey = ShiftDim(key, dim, delta);
+                if (grid.TryGetValue(neighborKey, out var neighborBucket))
+                    foreach (var idx in neighborBucket)
+                        merged.Add(idx);
             }
 
-            for (int j = 0; j < k; j++)
+            if (merged.Count >= K * 4) break; // enough candidates
+        }
+
+        // Last resort: full scan (should rarely happen)
+        if (merged.Count < K)
+            return null!;
+
+        return merged.ToList();
+    }
+
+    private (bool approved, float fraudScore) ScoreFromCandidates(List<int>? candidates, byte[] query)
+    {
+        Span<int> bestDistances = stackalloc int[K];
+        Span<int> bestIndices   = stackalloc int[K];
+        bestDistances.Fill(int.MaxValue);
+        bestIndices.Fill(-1);
+
+        ReadOnlySpan<byte> querySpan   = query;
+        ReadOnlySpan<byte> vectorsSpan = vectors;
+
+        // Full scan fallback if grid gave nothing
+        int searchCount = candidates?.Count ?? count;
+
+        for (int ci = 0; ci < searchCount; ci++)
+        {
+            int i = candidates != null ? candidates[ci] : ci;
+            var candidate = vectorsSpan.Slice(i * vectorSize, vectorSize);
+
+            if (!ComputeDistEarlyExit(candidate, querySpan, bestDistances[K - 1], out int dist))
+                continue;
+
+            if (dist >= bestDistances[K - 1]) continue;
+
+            for (int j = 0; j < K; j++)
             {
                 if (dist < bestDistances[j])
                 {
-                    for (int s = k - 1; s > j; s--)
+                    for (int s = K - 1; s > j; s--)
                     {
                         bestDistances[s] = bestDistances[s - 1];
-                        bestIndices[s] = bestIndices[s - 1];
+                        bestIndices[s]   = bestIndices[s - 1];
                     }
-
                     bestDistances[j] = dist;
-                    bestIndices[j] = i;
+                    bestIndices[j]   = i;
                     break;
                 }
             }
         }
 
-        // --- compute fraud score ---
-        int fraudCount = 0;
+        int fraudVotes = 0;
+        ReadOnlySpan<byte> labelsSpan = labels;
+        for (int i = 0; i < K; i++)
+            if (bestIndices[i] >= 0 && labelsSpan[bestIndices[i]] == 1)
+                fraudVotes++;
 
-        for (int i = 0; i < k; i++)
+        float fraudScore = fraudVotes / (float)K;
+        return (fraudScore < 0.6f, fraudScore);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool ComputeDistEarlyExit(ReadOnlySpan<byte> candidate, ReadOnlySpan<byte> query, int worstBest, out int dist)
+    {
+        dist = 0;
+        for (int d = 0; d < query.Length; d++)
         {
-            if (_labels[bestIndices[i]] == 1)
-            {
-                fraudCount++;                
-            }
+            int diff = candidate[d] - query[d];
+            dist += diff * diff;
+            if (dist >= worstBest) return false; // prune early
         }
+        return true;
+    }
 
-        float fraudScore = fraudCount / 5f;
-        bool approved = fraudScore < 0.6f;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private long GetGridKey(byte[] v)
+    {
+        long key = 0;
+        for (int i = 0; i < vectorSize; i++)
+            key |= (long)(v[i] >> (8 - bitsPerDim)) << (i * bitsPerDim);
+        return key;
+    }
 
-        return (approved, fraudScore);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private long ShiftDim(long key, int dim, int delta)
+    {
+        int shift = dim * bitsPerDim;
+        int mask  = (1 << bitsPerDim) - 1;
+        int bin   = (int)((key >> shift) & mask) + delta;
+        if (bin < 0 || bin >= (1 << bitsPerDim)) return -1; // out of bounds
+        return (key & ~((long)mask << shift)) | ((long)bin << shift);
     }
 
     public bool IsReady()
     {
-        Console.WriteLine($"FraudDetectionService - Legit count: {_legitCount}, Fraud count: {_fraudCount}");
-        Console.WriteLine($"FraudDetectionService - Labels length: {_labels?.Length}, Vectors length: {_vectors?.Length}");
-        Console.WriteLine($"FraudDetectionService - Vector size: {_vectorSize}, Count: {_count}");
-
-        return _legitCount + _fraudCount > 0 && _labels != null && _labels.Length > 0 && _vectors != null && _vectors.Length > 0;
+        Console.WriteLine($"FraudDetectionService - Legit: {legitCount}, Fraud: {fraudCount}");
+        Console.WriteLine($"FraudDetectionService - Grid cells: {grid.Count}");
+        Console.WriteLine($"FraudDetectionService - Vector size: {vectorSize}, Count: {count}");
+        return legitCount + fraudCount > 0 && labels?.Length > 0 && vectors?.Length > 0;
     }
 }

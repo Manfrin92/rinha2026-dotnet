@@ -12,22 +12,23 @@ builder.Services.AddScoped<IMatrix, Matrix>();
 
 var process = Process.GetCurrentProcess();
 var vectorSize = 5;
+var bitsPerDim = 3; // 8 bins per dimension — tune this if buckets are too large/small
 int capacity = 3_000_000;
 
 var vectors = new byte[capacity * vectorSize];
 var labels = new byte[capacity];
+var grid = new Dictionary<long, List<int>>();
 
 int index = 0;
 int legitCount = 0;
 int fraudCount = 0;
+
 Console.WriteLine($"Managed memory: {GC.GetTotalMemory(false) / (1024 * 1024)} MB");
 Console.WriteLine($"Working set: {process.WorkingSet64 / (1024 * 1024)} MB");
 
-// Using Streams to read the file one by one and not loading everything in memory
 using var gz = new GZipStream(File.OpenRead("./references.json.gz"), CompressionMode.Decompress);
 await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable(gz, RefJsonContext.Default.Reference))
 {
-    // --- label ---
     if (r?.Label == "legit")
     {
         labels[index] = 0;
@@ -39,33 +40,31 @@ await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable(gz, RefJsonCon
         fraudCount++;
     }
 
-    // --- dimensionality reduction by truncation
     int baseOffset = index * vectorSize;
 
     for (int i = 0; i < vectorSize; i++)
     {
-        var value = r?.Vector[i]; // double between 0–1
-
-        // clamp just in case
+        var value = r?.Vector[i];
         if (value < 0) value = 0;
         if (value > 1) value = 1;
-
         if (value != null)
-        {
             vectors[baseOffset + i] = (byte)(value * 255);
-        }
     }
+
+    // Build grid index
+    long key = GetGridKey(vectors, baseOffset, vectorSize, bitsPerDim);
+    if (!grid.TryGetValue(key, out var bucket))
+        grid[key] = bucket = new List<int>(64);
+    bucket.Add(index);
 
     index++;
 }
 
-Console.WriteLine($"Loaded {legitCount+fraudCount} references.");
+Console.WriteLine($"Loaded {legitCount + fraudCount} references.");
 Console.WriteLine($"Managed memory: {GC.GetTotalMemory(false) / (1024 * 1024)} MB");
 Console.WriteLine($"Working set: {process.WorkingSet64 / (1024 * 1024)} MB");
 Console.WriteLine($"Legit: {legitCount}, Fraud: {fraudCount}");
-
-Console.WriteLine("labels size: {0}", labels.Length);
-Console.WriteLine("vectors size: {0}", vectors.Length);
+Console.WriteLine($"Grid cells: {grid.Count}, avg bucket size: {index / (float)grid.Count:F1}");
 
 var vectorService = new Vector();
 
@@ -75,14 +74,22 @@ var fraudService = new FraudDetectionService(
     labels,
     vectors,
     vectorSize,
+    bitsPerDim,
     index,
-    vectorService
+    vectorService,
+    grid
 );
 
 builder.Services.AddSingleton<IFraudDetectionService>(fraudService);
 
 var app = builder.Build();
-
-app.MapControllers(); 
-
+app.MapControllers();
 app.Run();
+
+static long GetGridKey(byte[] vectors, int baseOffset, int vectorSize, int bitsPerDim)
+{
+    long key = 0;
+    for (int i = 0; i < vectorSize; i++)
+        key |= (long)(vectors[baseOffset + i] >> (8 - bitsPerDim)) << (i * bitsPerDim);
+    return key;
+}
