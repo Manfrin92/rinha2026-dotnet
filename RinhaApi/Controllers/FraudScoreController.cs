@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using RinhaApi.Controllers.Dtos;
+using RinhaApi.Services;
 
 namespace RinhaApi.Controllers;
 
@@ -8,18 +9,10 @@ namespace RinhaApi.Controllers;
 public class FraudScoreController : ControllerBase
 {
     [HttpPost]
-    public IActionResult GetReady([FromBody] FraudScoreRequest request, [FromServices] Services.IFraudDetectionService fraudDetectionService)
+    public FraudScoreResponse IsFraudulent(
+        [FromBody] FraudScoreRequest request,
+        [FromServices] IFraudDetectionService fraudDetectionService)
     {
-        FraudScoreResponse response = fraudDetectionService.IsFraudulent(request);
-
-        return Ok(response);
-    }
-
-    // TODO: Delete
-    [HttpPost("get-vector")]
-    public IActionResult GetVector([FromBody] FraudScoreRequest request, [FromServices] Services.IVector vectorService)
-    {
-        var vector = vectorService.GetVectorByRequest(request);
-        return Ok(vector);
+        return fraudDetectionService.IsFraudulent(request);
     }
 }
