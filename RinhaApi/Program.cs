@@ -20,8 +20,6 @@ var labels = new byte[capacity];
 var grid = new Dictionary<long, List<int>>();
 
 int index = 0;
-int legitCount = 0;
-int fraudCount = 0;
 
 Console.WriteLine($"Managed memory: {GC.GetTotalMemory(false) / (1024 * 1024)} MB");
 Console.WriteLine($"Working set: {process.WorkingSet64 / (1024 * 1024)} MB");
@@ -29,17 +27,6 @@ Console.WriteLine($"Working set: {process.WorkingSet64 / (1024 * 1024)} MB");
 using var gz = new GZipStream(File.OpenRead("./references.json.gz"), CompressionMode.Decompress);
 await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable(gz, RefJsonContext.Default.Reference))
 {
-    if (r?.Label == "legit")
-    {
-        labels[index] = 0;
-        legitCount++;
-    }
-    else
-    {
-        labels[index] = 1;
-        fraudCount++;
-    }
-
     int baseOffset = index * vectorSize;
 
     for (int i = 0; i < vectorSize; i++)
@@ -60,22 +47,17 @@ await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable(gz, RefJsonCon
     index++;
 }
 
-Console.WriteLine($"Loaded {legitCount + fraudCount} references.");
 Console.WriteLine($"Managed memory: {GC.GetTotalMemory(false) / (1024 * 1024)} MB");
 Console.WriteLine($"Working set: {process.WorkingSet64 / (1024 * 1024)} MB");
-Console.WriteLine($"Legit: {legitCount}, Fraud: {fraudCount}");
 Console.WriteLine($"Grid cells: {grid.Count}, avg bucket size: {index / (float)grid.Count:F1}");
 
 var vectorService = new Vector();
 
 var fraudService = new FraudDetectionService(
-    legitCount,
-    fraudCount,
     labels,
     vectors,
     vectorSize,
     bitsPerDim,
-    index,
     vectorService,
     grid
 );

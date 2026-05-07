@@ -5,13 +5,10 @@ using RinhaApi.Controllers.Dtos;
 namespace RinhaApi.Services;
 
 public class FraudDetectionService(
-    int legitCount,
-    int fraudCount,
     byte[] labels,
     byte[] vectors,
     int vectorSize,
     int bitsPerDim,
-    int count,
     IVector vectorService,
     Dictionary<long, List<int>> grid) : IFraudDetectionService
 {
@@ -74,7 +71,7 @@ public class FraudDetectionService(
         ReadOnlySpan<byte> vectorsSpan = vectors;
 
         // Full scan fallback if grid gave nothing
-        int searchCount = candidates?.Count ?? count;
+        int searchCount = candidates?.Count ?? (vectors.Length / vectorSize);
 
         for (int ci = 0; ci < searchCount; ci++)
         {
@@ -146,9 +143,8 @@ public class FraudDetectionService(
 
     public bool IsReady()
     {
-        Console.WriteLine($"FraudDetectionService - Legit: {legitCount}, Fraud: {fraudCount}");
         Console.WriteLine($"FraudDetectionService - Grid cells: {grid.Count}");
-        Console.WriteLine($"FraudDetectionService - Vector size: {vectorSize}, Count: {count}");
-        return legitCount + fraudCount > 0 && labels?.Length > 0 && vectors?.Length > 0;
+        Console.WriteLine($"FraudDetectionService - Vector size: {vectorSize}, Count: {vectors.Length / vectorSize}");
+        return labels?.Length > 0 && vectors?.Length > 0;
     }
 }
