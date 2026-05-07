@@ -38,6 +38,8 @@ await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable(gz, RefJsonCon
             vectors[baseOffset + i] = (byte)(value * 255);
     }
 
+    labels[index] = r?.Label == "fraud" ? (byte)1 : (byte)0;
+
     // Build grid index
     long key = GetGridKey(vectors, baseOffset, vectorSize, bitsPerDim);
     if (!grid.TryGetValue(key, out var bucket))
