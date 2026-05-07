@@ -1,4 +1,3 @@
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using RinhaApi.Controllers.Dtos;
 
@@ -26,12 +25,12 @@ public class FraudDetectionService(
         long key = GetGridKey(query);
 
         // Try exact cell first, then expand to neighbors if not enough points
-        var candidates = GetCandidates(key, query);
+        var candidates = GetCandidates(key);
 
         return ScoreFromCandidates(candidates, query);
     }
 
-    private List<int> GetCandidates(long key, byte[] query)
+    private List<int> GetCandidates(long key)
     {
         // Exact cell has enough points — fast path
         if (grid.TryGetValue(key, out var exactBucket) && exactBucket.Count >= K * 4)
@@ -143,8 +142,6 @@ public class FraudDetectionService(
 
     public bool IsReady()
     {
-        Console.WriteLine($"FraudDetectionService - Grid cells: {grid.Count}");
-        Console.WriteLine($"FraudDetectionService - Vector size: {vectorSize}, Count: {vectors.Length / vectorSize}");
         return labels?.Length > 0 && vectors?.Length > 0;
     }
 }
