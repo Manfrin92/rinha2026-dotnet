@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
+using RinhaApi.Controllers.Dtos;
 using RinhaApi.Models;
 using RinhaApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
 builder.Services.AddSingleton<IVector, Vector>();
 builder.Services.AddScoped<IMatrix, Matrix>();
 
@@ -64,8 +64,21 @@ var fraudService = new FraudDetectionService(
 
 builder.Services.AddSingleton<IFraudDetectionService>(fraudService);
 
+builder.Logging.ClearProviders(); // removes all logging overhead per request
+
+builder.Services.ConfigureHttpJsonOptions(opts => {
+    opts.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
+});
+
 var app = builder.Build();
-app.MapControllers();
+
+app.MapPost("/fraud-score", (
+    FraudScoreRequest request,
+    IFraudDetectionService svc) => svc.IsFraudulent(request));
+
+app.MapGet("/ready", (
+    IFraudDetectionService svc) => svc.IsReady() ? Results.Ok() : Results.StatusCode(503)); 
+
 app.Run();
 
 static long GetGridKey(byte[] vectors, int baseOffset, int vectorSize, int bitsPerDim)
