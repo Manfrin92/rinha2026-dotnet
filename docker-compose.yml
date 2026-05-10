@@ -1,8 +1,6 @@
 services:
   api1:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: rukovis/rinhaapi:latest
     environment:
       - ASPNETCORE_URLS=http://+:80
     deploy:
@@ -12,9 +10,7 @@ services:
           memory: 150M
 
   api2:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: rukovis/rinhaapi:latest
     environment:
       - ASPNETCORE_URLS=http://+:80
     deploy:
