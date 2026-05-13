@@ -19,7 +19,7 @@ COPY DataPreprocessor/ DataPreprocessor/
 
 # Run data preprocessor (loads references and creates preprocessed-data.bin)
 WORKDIR /src/DataPreprocessor
-RUN dotnet run -c Release --no-restore
+RUN dotnet restore && dotnet run -c Release
 
 # Copy preprocessed data to publish directory
 RUN cp preprocessed-data.bin /publish-data.bin
