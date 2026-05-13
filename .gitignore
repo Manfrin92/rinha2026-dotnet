@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+preprocessed-data.bin
 
 # User-specific files
 *.rsuser
