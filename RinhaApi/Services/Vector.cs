@@ -13,18 +13,17 @@ public class Vector : IVector
     private const int   MAX_TX_COUNT_24H         = 20;
     private const float MAX_MERCHANT_AVG_AMOUNT  = 10000;
 
-    public const int VECTOR_TRUNCATE_SIZE = 14;
+    public const int VECTOR_TRUNCATE_SIZE = 16; // padded to 16 for SIMD alignment
 
-    // Precompute inverses to replace divisions with multiplications
-    private const float INV_MAX_AMOUNT              = 1f / MAX_AMOUNT;
-    private const float INV_MAX_INSTALLMENTS        = 1f / MAX_INSTALLMENTS;
-    private const float INV_AMOUNT_VS_AVG_RATIO     = 1f / AMOUNT_VS_AVG_RATIO;
-    private const float INV_MAX_MINUTES             = 1f / MAX_MINUTES;
-    private const float INV_MAX_KM                  = 1f / MAX_KM;
-    private const float INV_MAX_TX_COUNT_24H        = 1f / MAX_TX_COUNT_24H;
-    private const float INV_MAX_MERCHANT_AVG_AMOUNT = 1f / MAX_MERCHANT_AVG_AMOUNT;
-    private const float INV_23                      = 1f / 23f;
-    private const float INV_6                       = 1f / 6f;
+    private const float INV_MAX_AMOUNT               = 1f / MAX_AMOUNT;
+    private const float INV_MAX_INSTALLMENTS         = 1f / MAX_INSTALLMENTS;
+    private const float INV_AMOUNT_VS_AVG_RATIO      = 1f / AMOUNT_VS_AVG_RATIO;
+    private const float INV_MAX_MINUTES              = 1f / MAX_MINUTES;
+    private const float INV_MAX_KM                   = 1f / MAX_KM;
+    private const float INV_MAX_TX_COUNT_24H         = 1f / MAX_TX_COUNT_24H;
+    private const float INV_MAX_MERCHANT_AVG_AMOUNT  = 1f / MAX_MERCHANT_AVG_AMOUNT;
+    private const float INV_23                       = 1f / 23f;
+    private const float INV_6                        = 1f / 6f;
 
     public float[] GetVectorByRequest(FraudScoreRequest request)
     {
@@ -41,7 +40,7 @@ public class Vector : IVector
         float dayOfWeek        = (int)(tx.Requested_at.DayOfWeek + 6) % 7 * INV_6;
 
         float minutesSinceLastTx = lastTx?.Timestamp != null
-            ? Clamp01((float)(DateTime.UtcNow - lastTx.Timestamp).TotalMinutes * INV_MAX_MINUTES)
+            ? Clamp01((float)(CachedClock.UtcNow - lastTx.Timestamp).TotalMinutes * INV_MAX_MINUTES)
             : -1f;
 
         float kmFromLastTx = lastTx != null
@@ -60,7 +59,8 @@ public class Vector : IVector
         [
             amount, installments, amountVsAvgRatio, hourOfDay, dayOfWeek,
             minutesSinceLastTx, kmFromLastTx, kmFromHome, txCount24h,
-            isOnline, cardPresent, unknownMerchant, mccRisk, merchantAvgAmt
+            isOnline, cardPresent, unknownMerchant, mccRisk, merchantAvgAmt,
+            0f, 0f // padding to 16 for SIMD alignment
         ];
     }
 

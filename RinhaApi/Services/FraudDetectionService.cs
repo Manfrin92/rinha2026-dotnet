@@ -24,39 +24,33 @@ public class FraudDetectionService(
     public (bool approved, float fraudScore) Evaluate(byte[] query)
     {
         long key = GetGridKey(query);
-        var candidates = GetCandidates(key);
-        return ScoreFromCandidates(candidates, query);
-    }
 
-    private List<int> GetCandidates(long key)
-    {
-        // Exact cell has enough points — fast path
-        if (grid.TryGetValue(key, out var exactBucket) && exactBucket.Count >= K * 4)
-            return exactBucket;
+        // Zero-alloc fast path — exact bucket has enough points
+        if (grid.TryGetValue(key, out var exactBucket) && exactBucket.Count >= K)
+            return ScoreFromCandidates(exactBucket, query);
 
-        // Expand to neighbor cells — only iterate gridDims.Length, not vectorSize
+        // Neighbor expansion — only allocate when necessary
         var merged = new HashSet<int>(exactBucket ?? []);
 
         for (int dim = 0; dim < gridDims.Length; dim++)
         {
-            foreach (int delta in new[] { -1, 1 })
-            {
-                long neighborKey = ShiftDim(key, dim, delta);
-                if (grid.TryGetValue(neighborKey, out var neighborBucket))
-                    foreach (var idx in neighborBucket)
-                        merged.Add(idx);
-            }
+            long n1 = ShiftDim(key, dim, -1);
+            long n2 = ShiftDim(key, dim,  1);
 
-            if (merged.Count >= K * 4) break;
+            if (grid.TryGetValue(n1, out var b1)) foreach (var idx in b1) merged.Add(idx);
+            if (grid.TryGetValue(n2, out var b2)) foreach (var idx in b2) merged.Add(idx);
+
+            if (merged.Count >= K * 2) break;
         }
 
+        // Not enough candidates — approve by default rather than full scan
         if (merged.Count < K)
-            return null!;
+            return (true, 0f);
 
-        return merged.ToList();
+        return ScoreFromHashSet(merged, query);
     }
 
-    private (bool approved, float fraudScore) ScoreFromCandidates(List<int>? candidates, byte[] query)
+    private (bool approved, float fraudScore) ScoreFromCandidates(List<int> candidates, byte[] query)
     {
         Span<int> bestDistances = stackalloc int[K];
         Span<int> bestIndices   = stackalloc int[K];
@@ -66,34 +60,67 @@ public class FraudDetectionService(
         ReadOnlySpan<byte> querySpan   = query;
         ReadOnlySpan<byte> vectorsSpan = vectors;
 
-        int searchCount = candidates?.Count ?? (vectors.Length / vectorSize);
-
-        for (int ci = 0; ci < searchCount; ci++)
+        for (int ci = 0; ci < candidates.Count; ci++)
         {
-            int i = candidates != null ? candidates[ci] : ci;
+            int i         = candidates[ci];
             var candidate = vectorsSpan.Slice(i * vectorSize, vectorSize);
 
             if (!ComputeDistEarlyExit(candidate, querySpan, bestDistances[K - 1], out int dist))
                 continue;
 
-            if (dist >= bestDistances[K - 1]) continue;
-
-            for (int j = 0; j < K; j++)
-            {
-                if (dist < bestDistances[j])
-                {
-                    for (int s = K - 1; s > j; s--)
-                    {
-                        bestDistances[s] = bestDistances[s - 1];
-                        bestIndices[s]   = bestIndices[s - 1];
-                    }
-                    bestDistances[j] = dist;
-                    bestIndices[j]   = i;
-                    break;
-                }
-            }
+            InsertBest(bestDistances, bestIndices, dist, i);
         }
 
+        return ComputeScore(bestIndices);
+    }
+
+    private (bool approved, float fraudScore) ScoreFromHashSet(HashSet<int> candidates, byte[] query)
+    {
+        Span<int> bestDistances = stackalloc int[K];
+        Span<int> bestIndices   = stackalloc int[K];
+        bestDistances.Fill(int.MaxValue);
+        bestIndices.Fill(-1);
+
+        ReadOnlySpan<byte> querySpan   = query;
+        ReadOnlySpan<byte> vectorsSpan = vectors;
+
+        foreach (int i in candidates)
+        {
+            var candidate = vectorsSpan.Slice(i * vectorSize, vectorSize);
+
+            if (!ComputeDistEarlyExit(candidate, querySpan, bestDistances[K - 1], out int dist))
+                continue;
+
+            InsertBest(bestDistances, bestIndices, dist, i);
+        }
+
+        return ComputeScore(bestIndices);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void InsertBest(Span<int> bestDistances, Span<int> bestIndices, int dist, int i)
+    {
+        if (dist >= bestDistances[K - 1]) return;
+
+        for (int j = 0; j < K; j++)
+        {
+            if (dist < bestDistances[j])
+            {
+                for (int s = K - 1; s > j; s--)
+                {
+                    bestDistances[s] = bestDistances[s - 1];
+                    bestIndices[s]   = bestIndices[s - 1];
+                }
+                bestDistances[j] = dist;
+                bestIndices[j]   = i;
+                break;
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private (bool approved, float fraudScore) ComputeScore(Span<int> bestIndices)
+    {
         int fraudVotes = 0;
         ReadOnlySpan<byte> labelsSpan = labels;
         for (int i = 0; i < K; i++)
@@ -136,8 +163,5 @@ public class FraudDetectionService(
         return (key & ~((long)mask << shift)) | ((long)bin << shift);
     }
 
-    public bool IsReady()
-    {
-        return labels?.Length > 0 && vectors?.Length > 0;
-    }
+    public bool IsReady() => labels?.Length > 0 && vectors?.Length > 0;
 }

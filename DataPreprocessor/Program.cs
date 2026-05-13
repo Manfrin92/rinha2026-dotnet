@@ -4,9 +4,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 var process = Process.GetCurrentProcess();
-var vectorSize = 14;
-var gridDims = new[] { 0, 1, 2, 3, 4, 7, 8 }; // continuous dims only, skips -1 flags (5,6) and binaries (9,10,11)
-var bitsPerDim = 3;
+var vectorSize = 16; // padded to 16 for SIMD alignment, last 2 bytes always 0
+var gridDims   = new[] { 0, 1, 2, 3, 4, 7, 8 };
+var bitsPerDim = 3; // 16 bins per dim, tighter cells, more exact hits
 int capacity = 3_000_000;
 
 var vectors = new byte[capacity * vectorSize];
@@ -31,7 +31,8 @@ await foreach (var r in JsonSerializer.DeserializeAsyncEnumerable(gz, RefJsonCon
 {
     int baseOffset = index * vectorSize;
 
-    for (int i = 0; i < vectorSize; i++)
+    int sourceSize = 14; // actual values in the json
+    for (int i = 0; i < sourceSize; i++)
     {
         var value = r?.Vector[i];
         if (value < 0) value = 0;
