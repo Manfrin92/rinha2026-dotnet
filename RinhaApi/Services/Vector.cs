@@ -5,40 +5,26 @@ namespace RinhaApi.Services;
 
 public class Vector : IVector
 {
-    private const float MAX_AMOUNT = 10000;
+    private const float MAX_AMOUNT               = 10000;
+    private const int   MAX_INSTALLMENTS         = 12;
+    private const int   AMOUNT_VS_AVG_RATIO      = 10;
+    private const int   MAX_MINUTES              = 1440;
+    private const int   MAX_KM                   = 1000;
+    private const int   MAX_TX_COUNT_24H         = 20;
+    private const float MAX_MERCHANT_AVG_AMOUNT  = 10000;
 
-    private const int MAX_INSTALLMENTS = 12;
+    public const int VECTOR_TRUNCATE_SIZE = 14;
 
-    private const int AMOUNT_VS_AVG_RATIO = 10;
-
-    private const int MAX_MINUTES = 1440;
-
-    private const int MAX_KM = 1000;
-
-    private const int MAX_TX_COUNT_24H = 20;
-
-    private const float MAX_MERCHANT_AVG_AMOUNT = 10000;
-
-    private const int VECTOR_TRUNCATE_SIZE = 5;
-
-    // CLAUDE => Precompute inverses to replace divisions with multiplications for performance
-    private const float INV_MAX_AMOUNT             = 1f / MAX_AMOUNT;
-
-    private const float INV_MAX_INSTALLMENTS       = 1f / MAX_INSTALLMENTS;
-
-    private const float INV_AMOUNT_VS_AVG_RATIO    = 1f / AMOUNT_VS_AVG_RATIO;
-
-    private const float INV_MAX_MINUTES            = 1f / MAX_MINUTES;
-
-    private const float INV_MAX_KM                 = 1f / MAX_KM;
-
-    private const float INV_MAX_TX_COUNT_24H       = 1f / MAX_TX_COUNT_24H;
-
-    private const float INV_MAX_MERCHANT_AVG_AMOUNT= 1f / MAX_MERCHANT_AVG_AMOUNT;
-
-    private const float INV_23                     = 1f / 23f;
-    
-    private const float INV_6                      = 1f / 6f;
+    // Precompute inverses to replace divisions with multiplications
+    private const float INV_MAX_AMOUNT              = 1f / MAX_AMOUNT;
+    private const float INV_MAX_INSTALLMENTS        = 1f / MAX_INSTALLMENTS;
+    private const float INV_AMOUNT_VS_AVG_RATIO     = 1f / AMOUNT_VS_AVG_RATIO;
+    private const float INV_MAX_MINUTES             = 1f / MAX_MINUTES;
+    private const float INV_MAX_KM                  = 1f / MAX_KM;
+    private const float INV_MAX_TX_COUNT_24H        = 1f / MAX_TX_COUNT_24H;
+    private const float INV_MAX_MERCHANT_AVG_AMOUNT = 1f / MAX_MERCHANT_AVG_AMOUNT;
+    private const float INV_23                      = 1f / 23f;
+    private const float INV_6                       = 1f / 6f;
 
     public float[] GetVectorByRequest(FraudScoreRequest request)
     {
@@ -48,12 +34,11 @@ public class Vector : IVector
         var merchant = request.Merchant;
         var lastTx   = request.Last_transaction;
 
-        // Multiplications instead of divisions
         float amount           = Clamp01(tx.Amount * INV_MAX_AMOUNT);
         float installments     = Clamp01((float)tx.Installments * INV_MAX_INSTALLMENTS);
         float amountVsAvgRatio = Clamp01(tx.Amount / customer.Avg_amount * INV_AMOUNT_VS_AVG_RATIO);
         float hourOfDay        = tx.Requested_at.Hour * INV_23;
-        float dayOfWeek = (int)(tx.Requested_at.DayOfWeek + 6) % 7 * INV_6;
+        float dayOfWeek        = (int)(tx.Requested_at.DayOfWeek + 6) % 7 * INV_6;
 
         float minutesSinceLastTx = lastTx?.Timestamp != null
             ? Clamp01((float)(DateTime.UtcNow - lastTx.Timestamp).TotalMinutes * INV_MAX_MINUTES)
@@ -63,7 +48,7 @@ public class Vector : IVector
             ? Clamp01(lastTx.Km_from_current * INV_MAX_KM)
             : -1f;
 
-        float kmFromHome      = Clamp01(terminal.Km_from_home   * INV_MAX_KM);
+        float kmFromHome      = Clamp01(terminal.Km_from_home * INV_MAX_KM);
         float txCount24h      = Clamp01((float)customer.Tx_count_24h * INV_MAX_TX_COUNT_24H);
         float isOnline        = terminal.Is_online    ? 1f : 0f;
         float cardPresent     = terminal.Card_present ? 1f : 0f;
@@ -94,29 +79,17 @@ public class Vector : IVector
         "4511" => 0.35f,
         "5311" => 0.25f,
         "5999" => 0.50f,
-        _ => 0.5f // Risco médio para outros MCCs
+        _      => 0.5f
     };
 
-    /// <summary>
-    /// Reduces the dimensionality of the input vector by truncating it.
-    /// </summary>
-    /// <param name="inputVector">The input vector to truncate.</param>
-    /// <returns>The truncated vector.</returns>
     public byte[] GetTruncatedVectorByRequest(float[] inputVector)
     {
         var queryVector = new byte[VECTOR_TRUNCATE_SIZE];
-
         for (int i = 0; i < VECTOR_TRUNCATE_SIZE; i++)
         {
-            float value = inputVector[i];
-
-            // clamp
-            if (value < 0) value = 0;
-            if (value > 1) value = 1;
-
+            float value = inputVector[i] < 0 ? 0 : inputVector[i] > 1 ? 1 : inputVector[i];
             queryVector[i] = (byte)(value * 255 + 0.5f);
         }
-
         return queryVector;
     }
 }

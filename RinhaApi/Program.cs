@@ -36,6 +36,7 @@ var fraudService = new FraudDetectionService(
     data.Vectors,
     data.VectorSize,
     data.BitsPerDim,
+    data.GridDims,
     vectorService,
     data.Grid
 );

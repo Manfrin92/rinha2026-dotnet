@@ -12,6 +12,7 @@ public class PreprocessedDataLoader
         public required Dictionary<long, List<int>> Grid { get; set; }
         public required int VectorSize { get; set; }
         public required int BitsPerDim { get; set; }
+        public required int[] GridDims { get; set; }
         public required int Count { get; set; }
     }
 
@@ -28,19 +29,21 @@ public class PreprocessedDataLoader
         // Read header
         var magic = reader.ReadString();
         if (magic != "RINHA")
-        {
             throw new InvalidOperationException("Invalid preprocessed data file format");
-        }
 
         var version = reader.ReadInt32();
         if (version != 1)
-        {
             throw new InvalidOperationException($"Unsupported preprocessed data version: {version}");
-        }
 
         var vectorSize = reader.ReadInt32();
         var bitsPerDim = reader.ReadInt32();
         var count = reader.ReadInt32();
+
+        // Read gridDims
+        var gridDimsLength = reader.ReadInt32();
+        var gridDims = new int[gridDimsLength];
+        for (int i = 0; i < gridDimsLength; i++)
+            gridDims[i] = reader.ReadInt32();
 
         // Read vectors
         var vectorsLength = reader.ReadInt32();
@@ -75,6 +78,7 @@ public class PreprocessedDataLoader
             Grid = grid,
             VectorSize = vectorSize,
             BitsPerDim = bitsPerDim,
+            GridDims = gridDims,
             Count = count
         };
     }

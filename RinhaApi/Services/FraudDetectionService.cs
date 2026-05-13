@@ -8,6 +8,7 @@ public class FraudDetectionService(
     byte[] vectors,
     int vectorSize,
     int bitsPerDim,
+    int[] gridDims,
     IVector vectorService,
     Dictionary<long, List<int>> grid) : IFraudDetectionService
 {
@@ -23,10 +24,7 @@ public class FraudDetectionService(
     public (bool approved, float fraudScore) Evaluate(byte[] query)
     {
         long key = GetGridKey(query);
-
-        // Try exact cell first, then expand to neighbors if not enough points
         var candidates = GetCandidates(key);
-
         return ScoreFromCandidates(candidates, query);
     }
 
@@ -36,10 +34,10 @@ public class FraudDetectionService(
         if (grid.TryGetValue(key, out var exactBucket) && exactBucket.Count >= K * 4)
             return exactBucket;
 
-        // Expand to neighbor cells by flipping each dim's bin by ±1
+        // Expand to neighbor cells — only iterate gridDims.Length, not vectorSize
         var merged = new HashSet<int>(exactBucket ?? []);
 
-        for (int dim = 0; dim < vectorSize; dim++)
+        for (int dim = 0; dim < gridDims.Length; dim++)
         {
             foreach (int delta in new[] { -1, 1 })
             {
@@ -49,10 +47,9 @@ public class FraudDetectionService(
                         merged.Add(idx);
             }
 
-            if (merged.Count >= K * 4) break; // enough candidates
+            if (merged.Count >= K * 4) break;
         }
 
-        // Last resort: full scan (should rarely happen)
         if (merged.Count < K)
             return null!;
 
@@ -69,7 +66,6 @@ public class FraudDetectionService(
         ReadOnlySpan<byte> querySpan   = query;
         ReadOnlySpan<byte> vectorsSpan = vectors;
 
-        // Full scan fallback if grid gave nothing
         int searchCount = candidates?.Count ?? (vectors.Length / vectorSize);
 
         for (int ci = 0; ci < searchCount; ci++)
@@ -116,7 +112,7 @@ public class FraudDetectionService(
         {
             int diff = candidate[d] - query[d];
             dist += diff * diff;
-            if (dist >= worstBest) return false; // prune early
+            if (dist >= worstBest) return false;
         }
         return true;
     }
@@ -125,8 +121,8 @@ public class FraudDetectionService(
     private long GetGridKey(byte[] v)
     {
         long key = 0;
-        for (int i = 0; i < vectorSize; i++)
-            key |= (long)(v[i] >> (8 - bitsPerDim)) << (i * bitsPerDim);
+        for (int i = 0; i < gridDims.Length; i++)
+            key |= (long)(v[gridDims[i]] >> (8 - bitsPerDim)) << (i * bitsPerDim);
         return key;
     }
 
@@ -136,7 +132,7 @@ public class FraudDetectionService(
         int shift = dim * bitsPerDim;
         int mask  = (1 << bitsPerDim) - 1;
         int bin   = (int)((key >> shift) & mask) + delta;
-        if (bin < 0 || bin >= (1 << bitsPerDim)) return -1; // out of bounds
+        if (bin < 0 || bin >= (1 << bitsPerDim)) return -1;
         return (key & ~((long)mask << shift)) | ((long)bin << shift);
     }
 
